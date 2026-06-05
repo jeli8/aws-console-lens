@@ -10,18 +10,36 @@
     .service-row { display: flex; align-items: center; padding: 4px 0; border-bottom: 1px solid #333; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #0f0; margin-right: 8px; flex-shrink: 0; }
     .footer { font-size: 10px; color: #555; margin-top: 10px; }
+    .update-time { font-size: 10px; color: #666; margin-top: 6px; }
   </style>
 </head>
 <body>
   <h1>🔍 AWS Console Lens</h1>
-  <p class="subtitle">Hover over any instance type on the AWS Console to see specs.</p>
+  <p class="subtitle">Hover over any AWS resource type on the AWS Console to see specs + live pricing.</p>
   <div class="services">
-    <div class="service-row"><div class="dot"></div>EC2 — t3, m5, r6g, c5, i3...</div>
-    <div class="service-row"><div class="dot"></div>RDS — db.t3, db.m5, db.r5...</div>
+    <div class="service-row"><div class="dot"></div>EC2 — t3, m5, c5, r5, p3, g5...</div>
+    <div class="service-row"><div class="dot"></div>EKS — Reuses EC2 instance data</div>
+    <div class="service-row"><div class="dot"></div>RDS — db.t3, db.m5, db.r6g...</div>
     <div class="service-row"><div class="dot"></div>OpenSearch — *.search types</div>
     <div class="service-row"><div class="dot"></div>MSK — kafka.m5, kafka.m7g...</div>
-    <div class="service-row"><div class="dot"></div>ElastiCache — cache.r6g...</div>
+    <div class="service-row"><div class="dot"></div>ElastiCache — cache.r6g, r7g...</div>
+    <div class="service-row"><div class="dot"></div>Redshift — ra3, dc2, ds2...</div>
+    <div class="service-row"><div class="dot"></div>MWAA — mw1.small through mw1.2xlarge</div>
+    <div class="service-row"><div class="dot"></div>Lambda — 128 MB to 10240 MB</div>
+    <div class="service-row"><div class="dot"></div>ECS / Fargate — vCPU + GB combos</div>
   </div>
-  <p class="footer">v1.0.0 · No external APIs · All specs built-in</p>
+  <p class="footer">v2.0.0 · Auto-updates pricing from AWS APIs</p>
+  <div class="update-time" id="update-time">Loading...</div>
+  <script>
+    chrome.storage.local.get('aws_lens_specs_updated').then(r => {
+      const el = document.getElementById('update-time');
+      if (r.aws_lens_specs_updated) {
+        const d = new Date(r.aws_lens_specs_updated);
+        el.textContent = 'Last updated: ' + d.toLocaleString();
+      } else {
+        el.textContent = 'Using bundled data (background sync pending)';
+      }
+    });
+  </script>
 </body>
 </html>

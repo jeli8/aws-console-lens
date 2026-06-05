@@ -65,3 +65,12 @@
   color: #fff;
   font-weight: 600;
 }
+
+.aws-lens-pricing-note {
+  padding: 6px 10px;
+  background: rgba(0, 200, 83, 0.1);
+  border-top: 1px solid #333;
+  font-size: 11px;
+  color: #00c853;
+  text-align: center;
+}
