@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 280px; padding: 12px; font-family: 'Amazon Ember', Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; margin: 0; }
+    h1 { color: #f90; font-size: 16px; margin: 0 0 8px; }
+    .subtitle { font-size: 11px; color: #aaa; margin-bottom: 12px; }
+    .services { font-size: 12px; }
+    .service-row { display: flex; align-items: center; padding: 4px 0; border-bottom: 1px solid #333; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #0f0; margin-right: 8px; flex-shrink: 0; }
+    .footer { font-size: 10px; color: #555; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>🔍 AWS Console Lens</h1>
+  <p class="subtitle">Hover over any instance type on the AWS Console to see specs.</p>
+  <div class="services">
+    <div class="service-row"><div class="dot"></div>EC2 — t3, m5, r6g, c5, i3...</div>
+    <div class="service-row"><div class="dot"></div>RDS — db.t3, db.m5, db.r5...</div>
+    <div class="service-row"><div class="dot"></div>OpenSearch — *.search types</div>
+    <div class="service-row"><div class="dot"></div>MSK — kafka.m5, kafka.m7g...</div>
+    <div class="service-row"><div class="dot"></div>ElastiCache — cache.r6g...</div>
+  </div>
+  <p class="footer">v1.0.0 · No external APIs · All specs built-in</p>
+</body>
+</html>
