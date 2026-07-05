@@ -1,0 +1,76 @@
+.aws-lens-annotated {
+  border-bottom: 1px dashed #f90;
+  cursor: help;
+}
+
+#aws-lens-tooltip {
+  display: none;
+  position: fixed;
+  z-index: 999999;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  border: 1px solid #f90;
+  border-radius: 6px;
+  padding: 0;
+  min-width: 220px;
+  max-width: 320px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  font-family: 'Amazon Ember', Arial, sans-serif;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.aws-lens-header {
+  background: #f90;
+  color: #000;
+  padding: 6px 10px;
+  border-radius: 5px 5px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.aws-lens-service {
+  font-weight: bold;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.aws-lens-type {
+  font-weight: bold;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.aws-lens-table {
+  width: 100%;
+  border-collapse: collapse;
+  padding: 4px;
+}
+
+.aws-lens-table tr:hover {
+  background: rgba(255,153,0,0.08);
+}
+
+.aws-lens-key {
+  padding: 4px 10px;
+  color: #aaa;
+  font-weight: 500;
+  width: 80px;
+}
+
+.aws-lens-val {
+  padding: 4px 10px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.aws-lens-pricing-note {
+  padding: 6px 10px;
+  background: rgba(0, 200, 83, 0.1);
+  border-top: 1px solid #333;
+  font-size: 11px;
+  color: #00c853;
+  text-align: center;
+}
