@@ -5,7 +5,7 @@
 
 #aws-lens-tooltip {
   display: none;
-  position: absolute;
+  position: fixed;
   z-index: 999999;
   background: #1a1a2e;
   color: #e0e0e0;

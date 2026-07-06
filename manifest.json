@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "AWS Console Lens",
-  "version": "2.0.0",
-  "description": "Hover over any AWS resource type to see vCPUs, RAM, storage, network, and live pricing. Supports EC2, RDS, OpenSearch, MSK, ElastiCache, Redshift, MWAA, Lambda, ECS.",
+  "version": "1.0.0",
+  "description": "Instantly see vCPUs, RAM, storage, network, and live pricing for any AWS resource type. Supports EC2, RDS, OpenSearch, MSK, ElastiCache, Redshift, MWAA, Lambda, ECS.",
+  "homepage_url": "https://github.com/jeli8/aws-console-lens",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -11,16 +12,18 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "alarms"],
+  "permissions": ["storage", "alarms", "tabs", "webNavigation"],
   "host_permissions": [
-    "https://instances.vantage.sh/*"
+    "https://ec2.shop/*"
   ],
   "content_scripts": [
     {
       "matches": ["https://console.aws.amazon.com/*", "https://*.console.aws.amazon.com/*"],
       "js": ["content.js"],
       "css": ["tooltip.css"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ],
   "web_accessible_resources": [
@@ -29,6 +32,15 @@
       "matches": ["https://console.aws.amazon.com/*", "https://*.console.aws.amazon.com/*"]
     }
   ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+A",
+        "mac": "Command+Shift+A"
+      },
+      "description": "Open AWS Console Lens"
+    }
+  },
   "action": {
     "default_popup": "popup/popup.html",
     "default_icon": {

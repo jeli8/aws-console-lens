@@ -3,43 +3,185 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { width: 280px; padding: 12px; font-family: 'Amazon Ember', Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; margin: 0; }
-    h1 { color: #f90; font-size: 16px; margin: 0 0 8px; }
-    .subtitle { font-size: 11px; color: #aaa; margin-bottom: 12px; }
-    .services { font-size: 12px; }
-    .service-row { display: flex; align-items: center; padding: 4px 0; border-bottom: 1px solid #333; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #0f0; margin-right: 8px; flex-shrink: 0; }
-    .footer { font-size: 10px; color: #555; margin-top: 10px; }
-    .update-time { font-size: 10px; color: #666; margin-top: 6px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { width: 320px; font-family: 'Amazon Ember', Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+
+    .header { background: #f90; color: #000; padding: 9px 14px; display: flex; align-items: center; gap: 8px; }
+    .header h1 { font-size: 14px; font-weight: bold; }
+    .header .version { font-size: 10px; opacity: 0.6; margin-left: auto; }
+
+    /* Service selector */
+    .service-bar { padding: 10px 12px 6px; border-bottom: 1px solid #2a2a2a; }
+    .service-bar label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px; }
+    .service-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+    .pill {
+      font-size: 10px; padding: 3px 8px; border-radius: 99px;
+      background: #222; color: #aaa; border: 1px solid #333;
+      cursor: pointer; user-select: none; transition: all 0.15s;
+    }
+    .pill:hover { border-color: #f90; color: #f90; }
+    .pill.active { background: #f90; color: #000; border-color: #f90; font-weight: 600; }
+
+    /* Instance type input row */
+    .lookup-bar { padding: 10px 12px; border-bottom: 1px solid #2a2a2a; display: flex; gap: 6px; align-items: center; }
+    .lookup-bar label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+    #instance-input {
+      flex: 1; background: #111; border: 1px solid #444; border-radius: 4px;
+      color: #fff; font-family: monospace; font-size: 13px; padding: 5px 8px;
+      outline: none;
+    }
+    #instance-input:focus { border-color: #f90; }
+    #instance-input.auto { border-color: #2a6; }
+    #lookup-btn {
+      background: #f90; color: #000; border: none; border-radius: 4px;
+      font-size: 11px; font-weight: 700; padding: 5px 10px; cursor: pointer;
+    }
+    #lookup-btn:hover { background: #ffaa22; }
+    .auto-badge { font-size: 9px; color: #2a6; margin-top: 2px; padding: 0 12px; }
+
+    /* Spec card */
+    #spec-card { display: none; }
+    .card-header { padding: 10px 14px 4px; display: flex; align-items: baseline; gap: 8px; }
+    .card-service-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #f90; }
+    .card-type-lbl { font-size: 20px; font-family: monospace; font-weight: bold; color: #fff; }
+
+    .spec-table { width: 100%; border-collapse: collapse; }
+    .spec-table td { padding: 6px 14px; font-size: 12px; border-bottom: 1px solid #1e1e1e; }
+    .spec-table .key { color: #aaa; width: 110px; }
+    .spec-table .val { color: #fff; font-weight: 600; }
+
+    .price-row { padding: 10px 14px; background: rgba(0,200,83,0.08); border-top: 1px solid #2a2a2a; }
+    .price-amount { font-size: 16px; font-weight: bold; color: #00c853; }
+    .price-monthly { font-size: 11px; color: #aaa; margin-top: 2px; }
+    .price-note { font-size: 10px; color: #555; margin-top: 3px; }
+
+    /* Not found state */
+    #not-found { display: none; padding: 14px; font-size: 12px; color: #888; text-align: center; }
+
+    .footer { font-size: 10px; color: #444; padding: 7px 14px; border-top: 1px solid #222; display: flex; justify-content: space-between; align-items: center; }
+    .refresh-btn { color: #f90; cursor: pointer; background: none; border: none; font-size: 11px; padding: 0; }
+    .settings-btn { color: #555; cursor: pointer; background: none; border: none; font-size: 13px; padding: 0; line-height: 1; }
+    .settings-btn:hover { color: #f90; }
+
+    /* ── Settings view ───────────────────────────────────────────────── */
+    #settings-view { display: none; }
+    .settings-back {
+      width: 100%; padding: 8px 14px; background: #111; border: none; border-bottom: 1px solid #2a2a2a;
+      color: #f90; font-size: 11px; text-align: left; cursor: pointer;
+    }
+    .settings-back:hover { background: #1a1a1a; }
+    .settings-section { padding: 14px; border-bottom: 1px solid #2a2a2a; }
+    .settings-section h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: #f90; margin-bottom: 10px; }
+    .shortcut-box {
+      background: #111; border: 1px solid #444; border-radius: 6px;
+      padding: 10px 12px; display: flex; align-items: center; gap: 8px;
+    }
+    .shortcut-box.recording { border-color: #f90; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { border-color: #f90; } 50% { border-color: #ffaa22; } }
+    #shortcut-display {
+      flex: 1; font-family: monospace; font-size: 13px; color: #fff;
+      font-weight: 600; letter-spacing: 0.5px;
+    }
+    #shortcut-display.placeholder { color: #555; font-weight: 400; }
+    .record-btn {
+      background: #f90; color: #000; border: none; border-radius: 4px;
+      font-size: 10px; font-weight: 700; padding: 4px 9px; cursor: pointer; white-space: nowrap;
+    }
+    .record-btn.active { background: #e55; color: #fff; }
+    .record-btn:hover { opacity: 0.85; }
+    .clear-shortcut {
+      background: none; border: 1px solid #333; border-radius: 4px; color: #666;
+      font-size: 10px; padding: 4px 8px; cursor: pointer;
+    }
+    .clear-shortcut:hover { border-color: #e55; color: #e55; }
+    .shortcut-hint { font-size: 10px; color: #555; margin-top: 8px; line-height: 1.5; }
+    .shortcut-hint b { color: #888; }
+    .settings-info { padding: 12px 14px; }
+    .settings-info p { font-size: 11px; color: #555; line-height: 1.6; }
+    .settings-info p b { color: #888; }
   </style>
 </head>
 <body>
-  <h1>🔍 AWS Console Lens</h1>
-  <p class="subtitle">Hover over any AWS resource type on the AWS Console to see specs + live pricing.</p>
-  <div class="services">
-    <div class="service-row"><div class="dot"></div>EC2 — t3, m5, c5, r5, p3, g5...</div>
-    <div class="service-row"><div class="dot"></div>EKS — Reuses EC2 instance data</div>
-    <div class="service-row"><div class="dot"></div>RDS — db.t3, db.m5, db.r6g...</div>
-    <div class="service-row"><div class="dot"></div>OpenSearch — *.search types</div>
-    <div class="service-row"><div class="dot"></div>MSK — kafka.m5, kafka.m7g...</div>
-    <div class="service-row"><div class="dot"></div>ElastiCache — cache.r6g, r7g...</div>
-    <div class="service-row"><div class="dot"></div>Redshift — ra3, dc2, ds2...</div>
-    <div class="service-row"><div class="dot"></div>MWAA — mw1.small through mw1.2xlarge</div>
-    <div class="service-row"><div class="dot"></div>Lambda — 128 MB to 10240 MB</div>
-    <div class="service-row"><div class="dot"></div>ECS / Fargate — vCPU + GB combos</div>
+  <div class="header">
+    <h1>🔍 AWS Console Lens</h1>
+    <span class="version">v3.7</span>
   </div>
-  <p class="footer">v2.0.0 · Auto-updates pricing from AWS APIs</p>
-  <div class="update-time" id="update-time">Loading...</div>
-  <script>
-    chrome.storage.local.get('aws_lens_specs_updated').then(r => {
-      const el = document.getElementById('update-time');
-      if (r.aws_lens_specs_updated) {
-        const d = new Date(r.aws_lens_specs_updated);
-        el.textContent = 'Last updated: ' + d.toLocaleString();
-      } else {
-        el.textContent = 'Using bundled data (background sync pending)';
-      }
-    });
-  </script>
+
+  <!-- ── Main view ── -->
+  <div id="main-view">
+    <div class="service-bar">
+      <label>Service</label>
+      <div class="service-pills" id="service-pills">
+        <span class="pill active" data-svc="ec2">EC2</span>
+        <span class="pill" data-svc="rds">RDS</span>
+        <span class="pill" data-svc="opensearch">OpenSearch</span>
+        <span class="pill" data-svc="msk">MSK</span>
+        <span class="pill" data-svc="elasticache">ElastiCache</span>
+        <span class="pill" data-svc="redshift">Redshift</span>
+        <span class="pill" data-svc="mwaa">MWAA</span>
+        <span class="pill" data-svc="lambda">Lambda</span>
+        <span class="pill" data-svc="ecs">ECS</span>
+      </div>
+    </div>
+
+    <div class="lookup-bar">
+      <label>Type</label>
+      <input id="instance-input" type="text" placeholder="e.g. m6a.large" spellcheck="false" autocomplete="off">
+      <button id="lookup-btn">Look up</button>
+    </div>
+    <div class="auto-badge" id="auto-badge"></div>
+
+    <div id="spec-card">
+      <div class="card-header">
+        <span class="card-service-lbl" id="card-service"></span>
+        <span class="card-type-lbl" id="card-type"></span>
+      </div>
+      <table class="spec-table" id="spec-table"></table>
+      <div class="price-row" id="price-row" style="display:none">
+        <div class="price-amount" id="price-amount"></div>
+        <div class="price-monthly" id="price-monthly"></div>
+        <div class="price-note">💰 us-east-1 · Linux On-Demand</div>
+      </div>
+    </div>
+
+    <div id="not-found">No specs found for this type.<br>It may be too new or the service/type combination is wrong.</div>
+
+    <div class="footer">
+      <span id="update-time">—</span>
+      <button class="refresh-btn" id="refresh-btn">↻ Refresh</button>
+      <button class="settings-btn" id="settings-btn" title="Settings">⚙</button>
+    </div>
+  </div>
+
+  <!-- ── Settings view ── -->
+  <div id="settings-view">
+    <button class="settings-back" id="settings-back">← Back</button>
+
+    <div class="settings-section">
+      <h2>Page Shortcut</h2>
+      <div class="shortcut-box" id="shortcut-box">
+        <span id="shortcut-display" class="placeholder">Not set</span>
+        <button class="record-btn" id="record-btn">Record</button>
+        <button class="clear-shortcut" id="clear-btn">Clear</button>
+      </div>
+      <!-- Key capture input: focused during recording to guarantee keydown events -->
+      <input id="key-capture" tabindex="-1" readonly
+             style="opacity:0;position:absolute;width:1px;height:1px;border:none;outline:none;pointer-events:none">
+      <p class="shortcut-hint">
+        Press <b>Record</b>, then press your key combo (e.g. Alt+Shift+A).<br>
+        This shortcut opens a floating panel directly on the AWS Console page — works in any browser.
+      </p>
+    </div>
+
+    <div class="settings-info">
+      <p>
+        <b>How it works:</b> The shortcut triggers a floating overlay on the page,
+        showing specs for the currently detected resource — no popup needed.
+        Press <b>Escape</b> to close the overlay.
+      </p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
 </body>
 </html>
