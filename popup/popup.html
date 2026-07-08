@@ -39,6 +39,15 @@
     #lookup-btn:hover { background: #ffaa22; }
     .auto-badge { font-size: 9px; color: #2a6; margin-top: 2px; padding: 0 12px; }
 
+    /* Region selector */
+    .region-bar { padding: 8px 12px; border-bottom: 1px solid #2a2a2a; display: flex; gap: 6px; align-items: center; }
+    .region-bar label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+    #region-select {
+      flex: 1; background: #111; border: 1px solid #444; border-radius: 4px;
+      color: #fff; font-size: 11px; padding: 4px 6px; outline: none; cursor: pointer;
+    }
+    #region-select:focus { border-color: #f90; }
+
     /* Spec card */
     #spec-card { display: none; }
     .card-header { padding: 10px 14px 4px; display: flex; align-items: baseline; gap: 8px; }
@@ -131,6 +140,28 @@
     </div>
     <div class="auto-badge" id="auto-badge"></div>
 
+    <div class="region-bar">
+      <label>Region</label>
+      <select id="region-select">
+        <option value="us-east-1">US East (N. Virginia) · us-east-1</option>
+        <option value="us-east-2">US East (Ohio) · us-east-2</option>
+        <option value="us-west-1">US West (N. California) · us-west-1</option>
+        <option value="us-west-2">US West (Oregon) · us-west-2</option>
+        <option value="ca-central-1">Canada (Central) · ca-central-1</option>
+        <option value="eu-west-1">EU (Ireland) · eu-west-1</option>
+        <option value="eu-west-2">EU (London) · eu-west-2</option>
+        <option value="eu-west-3">EU (Paris) · eu-west-3</option>
+        <option value="eu-central-1">EU (Frankfurt) · eu-central-1</option>
+        <option value="eu-north-1">EU (Stockholm) · eu-north-1</option>
+        <option value="ap-south-1">Asia Pacific (Mumbai) · ap-south-1</option>
+        <option value="ap-southeast-1">Asia Pacific (Singapore) · ap-southeast-1</option>
+        <option value="ap-southeast-2">Asia Pacific (Sydney) · ap-southeast-2</option>
+        <option value="ap-northeast-1">Asia Pacific (Tokyo) · ap-northeast-1</option>
+        <option value="ap-northeast-2">Asia Pacific (Seoul) · ap-northeast-2</option>
+        <option value="sa-east-1">South America (São Paulo) · sa-east-1</option>
+      </select>
+    </div>
+
     <div id="spec-card">
       <div class="card-header">
         <span class="card-service-lbl" id="card-service"></span>
@@ -140,7 +171,7 @@
       <div class="price-row" id="price-row" style="display:none">
         <div class="price-amount" id="price-amount"></div>
         <div class="price-monthly" id="price-monthly"></div>
-        <div class="price-note">💰 us-east-1 · Linux On-Demand</div>
+        <div class="price-note" id="price-note">💰 us-east-1 · Linux On-Demand</div>
       </div>
     </div>
 

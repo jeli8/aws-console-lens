@@ -27,8 +27,13 @@ function svcFromUrl(url) {
 
 let specs = {};
 let currentSvc = 'ec2';
+let currentRegion = 'us-east-1';
 
-// ec2.shop path per service (null = not supported, fall back to bundled)
+const DEFAULT_REGION = 'us-east-1';
+const POS_TTL_MS = 24 * 3600 * 1000; // successful lookups cached 24h
+const NEG_TTL_MS = 10 * 60 * 1000;   // "not found" cached 10min to avoid hammering on typos
+
+// ec2.shop path per service (undefined = not supported, fall back to bundled)
 const EC2_SHOP_PATH = {
   ec2: '',
   rds: '/rds',
@@ -38,22 +43,35 @@ const EC2_SHOP_PATH = {
   msk: '/msk',
 };
 
-async function fetchFromEc2Shop(svc, type) {
+function ec2ShopSupports(svc) {
+  return EC2_SHOP_PATH[svc] !== undefined;
+}
+
+async function fetchFromEc2Shop(svc, type, region) {
   const path = EC2_SHOP_PATH[svc];
   if (path === undefined) return null;
 
-  const cacheKey = `ec2shop_${svc}_${type.toLowerCase()}`;
+  const cacheKey = `ec2shop_${svc}_${region}_${type.toLowerCase()}`;
   const stored = await chrome.storage.local.get([cacheKey, cacheKey + '_ts']);
-  const isRecent = stored[cacheKey + '_ts'] && (Date.now() - stored[cacheKey + '_ts']) < 24 * 3600 * 1000;
-  if (isRecent && stored[cacheKey]) return stored[cacheKey];
+  const age = stored[cacheKey + '_ts'] ? Date.now() - stored[cacheKey + '_ts'] : Infinity;
+  const cached = stored[cacheKey];
+  if (cached) {
+    // Negative result sentinel expires faster than positive ones
+    if (cached._notFound && age < NEG_TTL_MS) return null;
+    if (!cached._notFound && age < POS_TTL_MS) return cached;
+  }
 
   try {
-    const url = `https://ec2.shop${path}?filter=${encodeURIComponent(type)}`;
+    const url = `https://ec2.shop${path}?filter=${encodeURIComponent(type)}&region=${encodeURIComponent(region)}`;
     const resp = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!resp.ok) return null;
+    if (!resp.ok) return { _error: true }; // server/network issue — don't cache
     const data = await resp.json();
     const item = data.Prices?.[0];
-    if (!item) return null;
+
+    if (!item) {
+      await chrome.storage.local.set({ [cacheKey]: { _notFound: true }, [cacheKey + '_ts']: Date.now() });
+      return null;
+    }
 
     const spec = {
       vcpu: item.VCPUS ?? null,
@@ -66,8 +84,18 @@ async function fetchFromEc2Shop(svc, type) {
     await chrome.storage.local.set({ [cacheKey]: spec, [cacheKey + '_ts']: Date.now() });
     return spec;
   } catch {
-    return null;
+    return { _error: true }; // offline / fetch threw — don't cache
   }
+}
+
+async function loadRegion() {
+  const stored = await chrome.storage.local.get('aws_lens_region');
+  return stored.aws_lens_region || DEFAULT_REGION;
+}
+
+async function saveRegion(region) {
+  currentRegion = region;
+  await chrome.storage.local.set({ aws_lens_region: region });
 }
 
 async function loadSpecs() {
@@ -99,12 +127,27 @@ async function lookupAndRender(svc, raw) {
 
   if (!raw) return;
 
-  let svcSpecs = specs[svc]?.[raw] || specs[svc]?.[raw.toLowerCase()];
+  const bundled = specs[svc]?.[raw] || specs[svc]?.[raw.toLowerCase()];
+  let svcSpecs = bundled;
+  // Bundled data is us-east-1 priced; for other regions prefer a live, region-correct lookup.
+  const needLive = ec2ShopSupports(svc) && (!bundled || currentRegion !== DEFAULT_REGION);
+  let priceIsRegional = false;
 
-  if (!svcSpecs) {
+  if (needLive) {
     document.getElementById('not-found').textContent = 'Looking up…';
     document.getElementById('not-found').style.display = 'block';
-    svcSpecs = await fetchFromEc2Shop(svc, raw);
+    const live = await fetchFromEc2Shop(svc, raw, currentRegion);
+    if (live && live._error) {
+      // Network/server error: fall back to bundled us-east-1 data if we have it.
+      if (!bundled) {
+        document.getElementById('not-found').textContent = 'Couldn\'t reach ec2.shop.\nCheck your connection and try again.';
+        document.getElementById('not-found').style.display = 'block';
+        return;
+      }
+    } else if (live) {
+      svcSpecs = live;
+      priceIsRegional = true;
+    }
   }
 
   if (!svcSpecs) {
@@ -136,6 +179,12 @@ async function lookupAndRender(svc, raw) {
     const hr = parseFloat(svcSpecs.price_usd_hr);
     document.getElementById('price-amount').textContent = `$${hr.toFixed(4)}/hr`;
     document.getElementById('price-monthly').textContent = `~$${(hr * 730).toFixed(2)}/month`;
+    // Live prices reflect the selected region; bundled fallback prices are us-east-1.
+    const priceRegion = priceIsRegional ? currentRegion : DEFAULT_REGION;
+    const note = document.getElementById('price-note');
+    note.textContent = (!priceIsRegional && currentRegion !== DEFAULT_REGION)
+      ? `💰 ${priceRegion} · Linux On-Demand (region price unavailable)`
+      : `💰 ${priceRegion} · Linux On-Demand`;
     priceRow.style.display = 'block';
   } else {
     priceRow.style.display = 'none';
@@ -214,6 +263,10 @@ async function saveShortcut(sc) {
 async function init() {
   specs = await loadSpecs();
 
+  currentRegion = await loadRegion();
+  const regionSelect = document.getElementById('region-select');
+  regionSelect.value = currentRegion;
+
   document.getElementById('update-time').textContent = 'Live via ec2.shop';
 
   let tab = null;
@@ -242,6 +295,13 @@ async function init() {
     input.classList.remove('auto');
     document.getElementById('auto-badge').textContent = '';
     lookupAndRender(currentSvc, input.value.trim().toLowerCase());
+  });
+
+  regionSelect.addEventListener('change', async e => {
+    await saveRegion(e.target.value);
+    const input = document.getElementById('instance-input');
+    const val = input.value.trim().toLowerCase();
+    if (val) lookupAndRender(currentSvc, val);
   });
 
   document.getElementById('lookup-btn').addEventListener('click', () => {
