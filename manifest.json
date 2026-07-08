@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AWS Console Lens",
-  "version": "1.0.0",
+  "version": "3.7.0",
   "description": "Instantly see vCPUs, RAM, storage, network, and live pricing for any AWS resource type. Supports EC2, RDS, OpenSearch, MSK, ElastiCache, Redshift, MWAA, Lambda, ECS.",
   "homepage_url": "https://github.com/jeli8/aws-console-lens",
   "icons": {
