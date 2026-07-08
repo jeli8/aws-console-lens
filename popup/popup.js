@@ -28,15 +28,51 @@ function svcFromUrl(url) {
 let specs = {};
 let currentSvc = 'ec2';
 
+// ec2.shop path per service (null = not supported, fall back to bundled)
+const EC2_SHOP_PATH = {
+  ec2: '',
+  rds: '/rds',
+  elasticache: '/elasticache',
+  opensearch: '/opensearch',
+  redshift: '/redshift',
+  msk: '/msk',
+};
+
+async function fetchFromEc2Shop(svc, type) {
+  const path = EC2_SHOP_PATH[svc];
+  if (path === undefined) return null;
+
+  const cacheKey = `ec2shop_${svc}_${type.toLowerCase()}`;
+  const stored = await chrome.storage.local.get([cacheKey, cacheKey + '_ts']);
+  const isRecent = stored[cacheKey + '_ts'] && (Date.now() - stored[cacheKey + '_ts']) < 24 * 3600 * 1000;
+  if (isRecent && stored[cacheKey]) return stored[cacheKey];
+
+  try {
+    const url = `https://ec2.shop${path}?filter=${encodeURIComponent(type)}`;
+    const resp = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const item = data.Prices?.[0];
+    if (!item) return null;
+
+    const spec = {
+      vcpu: item.VCPUS ?? null,
+      ram_gb: item.Memory ? parseFloat(item.Memory) : null,
+      network: item.Network || null,
+      storage: item.Storage || null,
+      price_usd_hr: item.Cost ? parseFloat(item.Cost) : null,
+    };
+
+    await chrome.storage.local.set({ [cacheKey]: spec, [cacheKey + '_ts']: Date.now() });
+    return spec;
+  } catch {
+    return null;
+  }
+}
+
 async function loadSpecs() {
-  const stored = await chrome.storage.local.get(['aws_lens_specs_ec2', 'aws_lens_specs_updated']);
   const bundled = await fetch(chrome.runtime.getURL('data/instance_specs.json')).then(r => r.json()).catch(() => ({}));
-  const isRecent = stored.aws_lens_specs_updated && (Date.now() - stored.aws_lens_specs_updated) < 48 * 3600 * 1000;
-  return {
-    ...bundled,
-    ec2: isRecent && stored.aws_lens_specs_ec2 ? stored.aws_lens_specs_ec2 : bundled.ec2,
-    _updated: stored.aws_lens_specs_updated,
-  };
+  return bundled;
 }
 
 async function forceScanAllFrames(tabId) {
@@ -57,18 +93,27 @@ function row(key, val) {
   return `<tr><td class="key">${key}</td><td class="val">${val}</td></tr>`;
 }
 
-function lookupAndRender(svc, raw) {
-  const svcSpecs = specs[svc]?.[raw] || specs[svc]?.[raw.toLowerCase()];
-
+async function lookupAndRender(svc, raw) {
   document.getElementById('spec-card').style.display = 'none';
   document.getElementById('not-found').style.display = 'none';
 
   if (!raw) return;
 
+  let svcSpecs = specs[svc]?.[raw] || specs[svc]?.[raw.toLowerCase()];
+
   if (!svcSpecs) {
+    document.getElementById('not-found').textContent = 'Looking up…';
+    document.getElementById('not-found').style.display = 'block';
+    svcSpecs = await fetchFromEc2Shop(svc, raw);
+  }
+
+  if (!svcSpecs) {
+    document.getElementById('not-found').textContent = 'No specs found for this type.\nIt may be too new or the service/type combination is wrong.';
     document.getElementById('not-found').style.display = 'block';
     return;
   }
+
+  document.getElementById('not-found').style.display = 'none';
 
   document.getElementById('spec-card').style.display = 'block';
   document.getElementById('card-service').textContent = SERVICE_LABELS[svc] || svc;
@@ -169,10 +214,7 @@ async function saveShortcut(sc) {
 async function init() {
   specs = await loadSpecs();
 
-  const timeEl = document.getElementById('update-time');
-  timeEl.textContent = specs._updated
-    ? 'Updated: ' + new Date(specs._updated).toLocaleDateString()
-    : 'Bundled data';
+  document.getElementById('update-time').textContent = 'Live via ec2.shop';
 
   let tab = null;
   let tabUrl = '';
