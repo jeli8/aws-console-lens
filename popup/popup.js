@@ -114,18 +114,34 @@ async function loadSpecs() {
   return bundled;
 }
 
-async function forceScanAllFrames(tabId) {
+// Scan every frame and collect their LIVE detections. Each frame returns what
+// it found right now, so we never rely on the shared storage key that all frames
+// overwrite (the cause of stale/mixed data across resources/accounts/regions).
+async function scanAllFrames(tabId) {
+  let responses = [];
   try {
     const frames = await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null);
     const frameIds = frames ? frames.map(f => f.frameId) : [0];
-    await Promise.all(
+    responses = await Promise.all(
       frameIds.map(fid =>
-        chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }, { frameId: fid }).catch(() => {})
+        chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }, { frameId: fid }).catch(() => null)
       )
     );
   } catch (_) {
-    await chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }).catch(() => {});
+    const r = await chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }).catch(() => null);
+    responses = [r];
   }
+  return responses.filter(r => r && r.detected).map(r => r.detected);
+}
+
+// Prefer a detection that matches the service implied by the tab URL.
+function pickDetection(dets, urlSvc) {
+  if (!dets.length) return null;
+  if (urlSvc) {
+    const match = dets.find(d => d.service === urlSvc);
+    if (match) return match;
+  }
+  return dets[0];
 }
 
 function row(key, val) {
@@ -209,32 +225,29 @@ function setActivePill(svc) {
   currentSvc = svc;
 }
 
-async function readAndRender(urlSvc) {
-  const data = await chrome.storage.local.get('aws_lens_detected');
-  const detected = data.aws_lens_detected;
-  const isRecent = detected && (Date.now() - detected.ts) < 5 * 60 * 1000;
-
+function renderDetection(detections, urlSvc) {
   const input = document.getElementById('instance-input');
   const badge = document.getElementById('auto-badge');
+  const det = pickDetection(detections, urlSvc);
 
-  const storedUrlSvc = svcFromUrl(detected?.url || '');
-  const crossService = urlSvc && storedUrlSvc && urlSvc !== storedUrlSvc;
-
-  if (isRecent && detected?.raw && !crossService) {
-    const bestSvc = urlSvc || detected.service || 'ec2';
+  if (det?.raw) {
+    const bestSvc = urlSvc || det.service || 'ec2';
     setActivePill(bestSvc);
-    input.value = detected.raw;
+    input.value = det.raw;
     input.classList.add('auto');
     badge.textContent = '✓ Auto-detected from page';
-    lookupAndRender(bestSvc, detected.raw);
+    lookupAndRender(bestSvc, det.raw);
   } else {
     if (urlSvc) setActivePill(urlSvc);
+    // Nothing on THIS page — clear any prior value/card so we never show data
+    // for a resource the user isn't actually looking at.
+    input.value = '';
     input.classList.remove('auto');
-    badge.textContent = crossService
-      ? 'Switched service — type an instance type to look it up'
-      : urlSvc
-        ? 'No instance type on this page — open a resource\'s detail page, or type one above'
-        : 'Type an instance type above to look it up';
+    document.getElementById('spec-card').style.display = 'none';
+    document.getElementById('not-found').style.display = 'none';
+    badge.textContent = urlSvc
+      ? 'No instance type on this page — open a resource\'s detail page, or type one above'
+      : 'Type an instance type above to look it up';
   }
 }
 
@@ -304,12 +317,9 @@ async function init() {
   ensureRegionOption(regionSelect, currentRegion);
   regionSelect.value = currentRegion;
 
-  if (tab?.id) {
-    await forceScanAllFrames(tab.id);
-    await new Promise(r => setTimeout(r, 450));
-  }
-
-  await readAndRender(urlSvc);
+  let detections = [];
+  if (tab?.id) detections = await scanAllFrames(tab.id);
+  renderDetection(detections, urlSvc);
 
   // ── Main view events ──────────────────────────────────────────────────────
 
@@ -352,11 +362,8 @@ async function init() {
 
   document.getElementById('refresh-btn').addEventListener('click', async () => {
     document.getElementById('auto-badge').textContent = '⟳ Scanning…';
-    if (tab?.id) {
-      await forceScanAllFrames(tab.id);
-      await new Promise(r => setTimeout(r, 450));
-    }
-    await readAndRender(urlSvc);
+    const dets = tab?.id ? await scanAllFrames(tab.id) : [];
+    renderDetection(dets, urlSvc);
   });
 
   // ── Settings view toggle ──────────────────────────────────────────────────

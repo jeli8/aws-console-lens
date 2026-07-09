@@ -79,9 +79,10 @@ function store(service, raw) {
 }
 
 // ── Scan logic ───────────────────────────────────────────────────────────────
-function scanPage() {
+// Returns { service, raw } for the type detected in THIS frame, or null.
+function computeDetection() {
   const text = document.body?.innerText || '';
-  if (!text) return;
+  if (!text) return null;
 
   const urlService = detectServiceFromUrl(location.href);
 
@@ -108,9 +109,7 @@ function scanPage() {
       if (vm) found = vm[1];
     }
     if (!found) continue;
-    const raw = found.toLowerCase().replace(/\s+/g, ' ').trim();
-    store(svc, raw);
-    return;
+    return { service: svc, raw: found.toLowerCase().replace(/\s+/g, ' ').trim() };
   }
 
   // Phase 2: full-page direct regex — only for the URL-detected service (or all if unknown)
@@ -123,18 +122,27 @@ function scanPage() {
     if (!allMatches.length) continue;
     // Take the LAST match — selected/detail panels are typically at the bottom
     const raw = allMatches[allMatches.length - 1][1].toLowerCase().replace(/\s+/g, ' ').trim();
-    store(svc, raw);
-    return;
+    return { service: svc, raw };
   }
+
+  return null;
+}
+
+function scanPage() {
+  const det = computeDetection();
+  if (det) store(det.service, det.raw);
 }
 
 // ── Message listener (popup requests an immediate scan) ──────────────────────
+// Returns this frame's live detection so the popup never depends on the shared
+// storage key (which every frame overwrites — the source of stale/mixed data).
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'SCAN_NOW') {
     _lastStored = '';
-    scanPage();
+    const det = computeDetection();
+    if (det) store(det.service, det.raw);
     if (LENS_DEBUG) logScanDiagnostics();
-    sendResponse({ ok: true, frame: location.href.slice(0, 80) });
+    sendResponse({ ok: true, url: location.href, detected: det || null });
   }
 });
 
