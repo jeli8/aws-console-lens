@@ -2,6 +2,10 @@
 // Detects the current AWS service from the URL, then scans page text for
 // instance/resource types and stores the result for the popup.
 
+// Debug logging — set to false before publishing. Only logs on an explicit
+// SCAN_NOW (popup open), never on the MutationObserver, so it won't spam.
+const LENS_DEBUG = true;
+
 // ── Service detection from URL ───────────────────────────────────────────────
 // Maps URL substrings to service keys. Checked in order; first match wins.
 const URL_SERVICE_MAP = [
@@ -129,9 +133,37 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'SCAN_NOW') {
     _lastStored = '';
     scanPage();
+    if (LENS_DEBUG) logScanDiagnostics();
     sendResponse({ ok: true, frame: location.href.slice(0, 80) });
   }
 });
+
+// Diagnostics: prints, per service, how many label hits and which instance-type
+// strings exist on the page, plus the final stored result. Helps pinpoint why a
+// given page did/didn't detect. Copy the whole group to share.
+function logScanDiagnostics() {
+  const text = document.body?.innerText || '';
+  const urlService = detectServiceFromUrl(location.href);
+  console.group('%c[AWS Lens] scan diagnostics', 'color:#f90;font-weight:bold');
+  console.log('frame URL     :', location.href);
+  console.log('URL service   :', urlService);
+  console.log('body text len :', text.length);
+  for (const svc of Object.keys(SERVICE_PATTERNS)) {
+    const [labelRe, valueRe] = SERVICE_PATTERNS[svc];
+    const labels = [...text.matchAll(new RegExp(labelRe.source, 'gi'))].length;
+    let direct = [];
+    if (DIRECT_PATTERNS[svc]) {
+      DIRECT_PATTERNS[svc].lastIndex = 0;
+      direct = [...text.matchAll(DIRECT_PATTERNS[svc])].map(m => m[1]).slice(0, 12);
+    }
+    console.log(
+      `  ${svc.padEnd(12)} labels:${String(labels).padStart(3)}  direct:`,
+      direct.length ? direct : '(none)'
+    );
+  }
+  console.log('stored result :', _lastStored || '(nothing detected)');
+  console.groupEnd();
+}
 
 // ── Floating overlay (triggered by configurable keyboard shortcut) ────────────
 const SERVICE_DISPLAY = {
