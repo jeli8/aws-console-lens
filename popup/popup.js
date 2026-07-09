@@ -117,21 +117,32 @@ async function loadSpecs() {
 // Scan every frame and collect their LIVE detections. Each frame returns what
 // it found right now, so we never rely on the shared storage key that all frames
 // overwrite (the cause of stale/mixed data across resources/accounts/regions).
+const LENS_DEBUG = true; // set false before publishing
+
 async function scanAllFrames(tabId) {
-  let responses = [];
+  let frameIds = [0];
   try {
     const frames = await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null);
-    const frameIds = frames ? frames.map(f => f.frameId) : [0];
-    responses = await Promise.all(
-      frameIds.map(fid =>
-        chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }, { frameId: fid }).catch(() => null)
-      )
-    );
-  } catch (_) {
-    const r = await chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }).catch(() => null);
-    responses = [r];
+    if (frames) frameIds = frames.map(f => f.frameId);
+  } catch (_) {}
+
+  const results = await Promise.all(
+    frameIds.map(async fid => ({
+      fid,
+      r: await chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }, { frameId: fid }).catch(() => null),
+    }))
+  );
+
+  if (LENS_DEBUG) {
+    console.log('[AWS Lens popup] frame responses:', results.map(x => ({
+      frameId: x.fid,
+      build: x.r?.build || '(no response / old content.js — refresh the AWS tab)',
+      detected: x.r?.detected || null,
+      url: x.r?.url,
+    })));
   }
-  return responses.filter(r => r && r.detected).map(r => r.detected);
+
+  return results.map(x => x.r).filter(r => r && r.detected).map(r => r.detected);
 }
 
 // Prefer a detection that matches the service implied by the tab URL.
@@ -229,6 +240,7 @@ function renderDetection(detections, urlSvc) {
   const input = document.getElementById('instance-input');
   const badge = document.getElementById('auto-badge');
   const det = pickDetection(detections, urlSvc);
+  if (LENS_DEBUG) console.log('[AWS Lens popup] urlSvc:', urlSvc, '| picked:', det, '| from:', detections);
 
   if (det?.raw) {
     const bestSvc = urlSvc || det.service || 'ec2';

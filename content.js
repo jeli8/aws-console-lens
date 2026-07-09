@@ -4,7 +4,8 @@
 
 // Debug logging — set to false before publishing. Only logs on an explicit
 // SCAN_NOW (popup open), never on the MutationObserver, so it won't spam.
-const LENS_DEBUG = false;
+const LENS_DEBUG = true;
+const LENS_BUILD = 'live-detect-2'; // bump on content-script changes to verify the tab was refreshed
 
 // ── Service detection from URL ───────────────────────────────────────────────
 // Maps URL substrings to service keys. Checked in order; first match wins.
@@ -142,7 +143,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     const det = computeDetection();
     if (det) store(det.service, det.raw);
     if (LENS_DEBUG) logScanDiagnostics();
-    sendResponse({ ok: true, url: location.href, detected: det || null });
+    sendResponse({ ok: true, build: LENS_BUILD, url: location.href, detected: det || null });
   }
 });
 
