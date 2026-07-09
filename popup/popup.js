@@ -232,7 +232,9 @@ async function readAndRender(urlSvc) {
     input.classList.remove('auto');
     badge.textContent = crossService
       ? 'Switched service — type an instance type to look it up'
-      : 'Type an instance type above to look it up';
+      : urlSvc
+        ? 'No instance type on this page — open a resource\'s detail page, or type one above'
+        : 'Type an instance type above to look it up';
   }
 }
 
