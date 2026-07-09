@@ -88,17 +88,23 @@ function scanPage() {
     ? [urlService, ...allServices.filter(s => s !== urlService)]
     : allServices;
 
-  // Phase 1: label + value within 600-char window after the LAST label match
+  // Phase 1: label + value within a 600-char window after a label match.
+  // Check ALL label occurrences (last first — detail panels are usually lower
+  // on the page), so a stray earlier/later "class"/"size" word doesn't hide the
+  // real value.
   for (const svc of ordered) {
     const [labelRe, valueRe] = SERVICE_PATTERNS[svc] || [];
     if (!labelRe) continue;
     const allLabels = [...text.matchAll(new RegExp(labelRe.source, 'gi'))];
     if (!allLabels.length) continue;
-    const lastLabel = allLabels[allLabels.length - 1];
-    const window = text.slice(lastLabel.index, lastLabel.index + 600);
-    const vm = window.match(valueRe);
-    if (!vm) continue;
-    const raw = vm[1].toLowerCase().replace(/\s+/g, ' ').trim();
+    let found = null;
+    for (let i = allLabels.length - 1; i >= 0 && !found; i--) {
+      const window = text.slice(allLabels[i].index, allLabels[i].index + 600);
+      const vm = window.match(valueRe);
+      if (vm) found = vm[1];
+    }
+    if (!found) continue;
+    const raw = found.toLowerCase().replace(/\s+/g, ' ').trim();
     store(svc, raw);
     return;
   }

@@ -25,6 +25,17 @@ function svcFromUrl(url) {
   return null;
 }
 
+// Extract the AWS region from a console URL. AWS puts it in a `region=` param
+// (query or hash) and/or as the hostname prefix. Returns null if not present.
+function regionFromUrl(url) {
+  if (!url) return null;
+  const param = url.match(/[?&#]region=([a-z]{2}-[a-z]+-\d+)/i);
+  if (param) return param[1].toLowerCase();
+  const sub = url.match(/^https?:\/\/([a-z]{2}-[a-z]+-\d+)\.console\.aws\.amazon\.com/i);
+  if (sub) return sub[1].toLowerCase();
+  return null;
+}
+
 let specs = {};
 let currentSvc = 'ec2';
 let currentRegion = 'us-east-1';
@@ -260,12 +271,17 @@ async function saveShortcut(sc) {
 
 // ── Main init ─────────────────────────────────────────────────────────────────
 
+function ensureRegionOption(select, region) {
+  if (![...select.options].some(o => o.value === region)) {
+    const opt = document.createElement('option');
+    opt.value = region;
+    opt.textContent = region;
+    select.appendChild(opt);
+  }
+}
+
 async function init() {
   specs = await loadSpecs();
-
-  currentRegion = await loadRegion();
-  const regionSelect = document.getElementById('region-select');
-  regionSelect.value = currentRegion;
 
   document.getElementById('update-time').textContent = 'Live via ec2.shop';
 
@@ -277,6 +293,14 @@ async function init() {
   } catch (_) {}
 
   const urlSvc = svcFromUrl(tabUrl);
+
+  // Region: auto-detect from the current AWS console page; fall back to the
+  // last saved choice, then us-east-1.
+  const detectedRegion = regionFromUrl(tabUrl);
+  currentRegion = detectedRegion || await loadRegion();
+  const regionSelect = document.getElementById('region-select');
+  ensureRegionOption(regionSelect, currentRegion);
+  regionSelect.value = currentRegion;
 
   if (tab?.id) {
     await forceScanAllFrames(tab.id);
