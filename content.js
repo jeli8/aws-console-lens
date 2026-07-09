@@ -4,7 +4,7 @@
 
 // Debug logging — set to false before publishing. Only logs on an explicit
 // SCAN_NOW (popup open), never on the MutationObserver, so it won't spam.
-const LENS_DEBUG = true;
+const LENS_DEBUG = false;
 
 // ── Service detection from URL ───────────────────────────────────────────────
 // Maps URL substrings to service keys. Checked in order; first match wins.
