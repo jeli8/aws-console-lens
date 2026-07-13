@@ -4,7 +4,7 @@
 
 // Debug logging — set to false before publishing. Only logs on an explicit
 // SCAN_NOW (popup open), never on the MutationObserver, so it won't spam.
-const LENS_DEBUG = true;
+const LENS_DEBUG = false;
 const LENS_BUILD = 'live-detect-2'; // bump on content-script changes to verify the tab was refreshed
 
 // ── Service detection from URL ───────────────────────────────────────────────
