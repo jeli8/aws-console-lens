@@ -25,50 +25,176 @@ function svcFromUrl(url) {
   return null;
 }
 
-let specs = {};
-let currentSvc = 'ec2';
-
-async function loadSpecs() {
-  const stored = await chrome.storage.local.get(['aws_lens_specs_ec2', 'aws_lens_specs_updated']);
-  const bundled = await fetch(chrome.runtime.getURL('data/instance_specs.json')).then(r => r.json()).catch(() => ({}));
-  const isRecent = stored.aws_lens_specs_updated && (Date.now() - stored.aws_lens_specs_updated) < 48 * 3600 * 1000;
-  return {
-    ...bundled,
-    ec2: isRecent && stored.aws_lens_specs_ec2 ? stored.aws_lens_specs_ec2 : bundled.ec2,
-    _updated: stored.aws_lens_specs_updated,
-  };
+// Extract the AWS region from a console URL. AWS puts it in a `region=` param
+// (query or hash) and/or as the hostname prefix. Returns null if not present.
+function regionFromUrl(url) {
+  if (!url) return null;
+  const param = url.match(/[?&#]region=([a-z]{2}-[a-z]+-\d+)/i);
+  if (param) return param[1].toLowerCase();
+  const sub = url.match(/^https?:\/\/([a-z]{2}-[a-z]+-\d+)\.console\.aws\.amazon\.com/i);
+  if (sub) return sub[1].toLowerCase();
+  return null;
 }
 
-async function forceScanAllFrames(tabId) {
+let specs = {};
+let currentSvc = 'ec2';
+let currentRegion = 'us-east-1';
+
+const DEFAULT_REGION = 'us-east-1';
+const POS_TTL_MS = 24 * 3600 * 1000; // successful lookups cached 24h
+const NEG_TTL_MS = 10 * 60 * 1000;   // "not found" cached 10min to avoid hammering on typos
+
+// ec2.shop path per service (undefined = not supported, fall back to bundled)
+const EC2_SHOP_PATH = {
+  ec2: '',
+  rds: '/rds',
+  elasticache: '/elasticache',
+  opensearch: '/opensearch',
+  redshift: '/redshift',
+  msk: '/msk',
+};
+
+function ec2ShopSupports(svc) {
+  return EC2_SHOP_PATH[svc] !== undefined;
+}
+
+async function fetchFromEc2Shop(svc, type, region) {
+  const path = EC2_SHOP_PATH[svc];
+  if (path === undefined) return null;
+
+  const cacheKey = `ec2shop_${svc}_${region}_${type.toLowerCase()}`;
+  const stored = await chrome.storage.local.get([cacheKey, cacheKey + '_ts']);
+  const age = stored[cacheKey + '_ts'] ? Date.now() - stored[cacheKey + '_ts'] : Infinity;
+  const cached = stored[cacheKey];
+  if (cached) {
+    // Negative result sentinel expires faster than positive ones
+    if (cached._notFound && age < NEG_TTL_MS) return null;
+    if (!cached._notFound && age < POS_TTL_MS) return cached;
+  }
+
+  try {
+    const url = `https://ec2.shop${path}?filter=${encodeURIComponent(type)}&region=${encodeURIComponent(region)}`;
+    const resp = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!resp.ok) return { _error: true }; // server/network issue — don't cache
+    const data = await resp.json();
+    const item = data.Prices?.[0];
+
+    if (!item) {
+      await chrome.storage.local.set({ [cacheKey]: { _notFound: true }, [cacheKey + '_ts']: Date.now() });
+      return null;
+    }
+
+    const spec = {
+      vcpu: item.VCPUS ?? null,
+      ram_gb: item.Memory ? parseFloat(item.Memory) : null,
+      network: item.Network || null,
+      storage: item.Storage || null,
+      price_usd_hr: item.Cost ? parseFloat(item.Cost) : null,
+    };
+
+    await chrome.storage.local.set({ [cacheKey]: spec, [cacheKey + '_ts']: Date.now() });
+    return spec;
+  } catch {
+    return { _error: true }; // offline / fetch threw — don't cache
+  }
+}
+
+async function loadRegion() {
+  const stored = await chrome.storage.local.get('aws_lens_region');
+  return stored.aws_lens_region || DEFAULT_REGION;
+}
+
+async function saveRegion(region) {
+  currentRegion = region;
+  await chrome.storage.local.set({ aws_lens_region: region });
+}
+
+async function loadSpecs() {
+  const bundled = await fetch(chrome.runtime.getURL('data/instance_specs.json')).then(r => r.json()).catch(() => ({}));
+  return bundled;
+}
+
+// Scan every frame and collect their LIVE detections. Each frame returns what
+// it found right now, so we never rely on the shared storage key that all frames
+// overwrite (the cause of stale/mixed data across resources/accounts/regions).
+const LENS_DEBUG = true; // set false before publishing
+
+async function scanAllFrames(tabId) {
+  let frameIds = [0];
   try {
     const frames = await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null);
-    const frameIds = frames ? frames.map(f => f.frameId) : [0];
-    await Promise.all(
-      frameIds.map(fid =>
-        chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }, { frameId: fid }).catch(() => {})
-      )
-    );
-  } catch (_) {
-    await chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }).catch(() => {});
+    if (frames) frameIds = frames.map(f => f.frameId);
+  } catch (_) {}
+
+  const results = await Promise.all(
+    frameIds.map(async fid => ({
+      fid,
+      r: await chrome.tabs.sendMessage(tabId, { action: 'SCAN_NOW' }, { frameId: fid }).catch(() => null),
+    }))
+  );
+
+  if (LENS_DEBUG) {
+    console.log('[AWS Lens popup] frame responses:', results.map(x => ({
+      frameId: x.fid,
+      build: x.r?.build || '(no response / old content.js — refresh the AWS tab)',
+      detected: x.r?.detected || null,
+      url: x.r?.url,
+    })));
   }
+
+  return results.map(x => x.r).filter(r => r && r.detected).map(r => r.detected);
+}
+
+// Prefer a detection that matches the service implied by the tab URL.
+function pickDetection(dets, urlSvc) {
+  if (!dets.length) return null;
+  if (urlSvc) {
+    const match = dets.find(d => d.service === urlSvc);
+    if (match) return match;
+  }
+  return dets[0];
 }
 
 function row(key, val) {
   return `<tr><td class="key">${key}</td><td class="val">${val}</td></tr>`;
 }
 
-function lookupAndRender(svc, raw) {
-  const svcSpecs = specs[svc]?.[raw] || specs[svc]?.[raw.toLowerCase()];
-
+async function lookupAndRender(svc, raw) {
   document.getElementById('spec-card').style.display = 'none';
   document.getElementById('not-found').style.display = 'none';
 
   if (!raw) return;
 
+  const bundled = specs[svc]?.[raw] || specs[svc]?.[raw.toLowerCase()];
+  let svcSpecs = bundled;
+  // Bundled data is us-east-1 priced; for other regions prefer a live, region-correct lookup.
+  const needLive = ec2ShopSupports(svc) && (!bundled || currentRegion !== DEFAULT_REGION);
+  let priceIsRegional = false;
+
+  if (needLive) {
+    document.getElementById('not-found').textContent = 'Looking up…';
+    document.getElementById('not-found').style.display = 'block';
+    const live = await fetchFromEc2Shop(svc, raw, currentRegion);
+    if (live && live._error) {
+      // Network/server error: fall back to bundled us-east-1 data if we have it.
+      if (!bundled) {
+        document.getElementById('not-found').textContent = 'Couldn\'t reach ec2.shop.\nCheck your connection and try again.';
+        document.getElementById('not-found').style.display = 'block';
+        return;
+      }
+    } else if (live) {
+      svcSpecs = live;
+      priceIsRegional = true;
+    }
+  }
+
   if (!svcSpecs) {
+    document.getElementById('not-found').textContent = 'No specs found for this type.\nIt may be too new or the service/type combination is wrong.';
     document.getElementById('not-found').style.display = 'block';
     return;
   }
+
+  document.getElementById('not-found').style.display = 'none';
 
   document.getElementById('spec-card').style.display = 'block';
   document.getElementById('card-service').textContent = SERVICE_LABELS[svc] || svc;
@@ -91,6 +217,12 @@ function lookupAndRender(svc, raw) {
     const hr = parseFloat(svcSpecs.price_usd_hr);
     document.getElementById('price-amount').textContent = `$${hr.toFixed(4)}/hr`;
     document.getElementById('price-monthly').textContent = `~$${(hr * 730).toFixed(2)}/month`;
+    // Live prices reflect the selected region; bundled fallback prices are us-east-1.
+    const priceRegion = priceIsRegional ? currentRegion : DEFAULT_REGION;
+    const note = document.getElementById('price-note');
+    note.textContent = (!priceIsRegional && currentRegion !== DEFAULT_REGION)
+      ? `💰 ${priceRegion} · Linux On-Demand (region price unavailable)`
+      : `💰 ${priceRegion} · Linux On-Demand`;
     priceRow.style.display = 'block';
   } else {
     priceRow.style.display = 'none';
@@ -104,29 +236,29 @@ function setActivePill(svc) {
   currentSvc = svc;
 }
 
-async function readAndRender(urlSvc) {
-  const data = await chrome.storage.local.get('aws_lens_detected');
-  const detected = data.aws_lens_detected;
-  const isRecent = detected && (Date.now() - detected.ts) < 5 * 60 * 1000;
-
+function renderDetection(detections, urlSvc) {
   const input = document.getElementById('instance-input');
   const badge = document.getElementById('auto-badge');
+  const det = pickDetection(detections, urlSvc);
+  if (LENS_DEBUG) console.log('[AWS Lens popup] urlSvc:', urlSvc, '| picked:', det, '| from:', detections);
 
-  const storedUrlSvc = svcFromUrl(detected?.url || '');
-  const crossService = urlSvc && storedUrlSvc && urlSvc !== storedUrlSvc;
-
-  if (isRecent && detected?.raw && !crossService) {
-    const bestSvc = urlSvc || detected.service || 'ec2';
+  if (det?.raw) {
+    const bestSvc = urlSvc || det.service || 'ec2';
     setActivePill(bestSvc);
-    input.value = detected.raw;
+    input.value = det.raw;
     input.classList.add('auto');
     badge.textContent = '✓ Auto-detected from page';
-    lookupAndRender(bestSvc, detected.raw);
+    lookupAndRender(bestSvc, det.raw);
   } else {
     if (urlSvc) setActivePill(urlSvc);
+    // Nothing on THIS page — clear any prior value/card so we never show data
+    // for a resource the user isn't actually looking at.
+    input.value = '';
     input.classList.remove('auto');
-    badge.textContent = crossService
-      ? 'Switched service — type an instance type to look it up'
+    document.getElementById('spec-card').style.display = 'none';
+    document.getElementById('not-found').style.display = 'none';
+    badge.textContent = urlSvc
+      ? 'No instance type on this page — open a resource\'s detail page, or type one above'
       : 'Type an instance type above to look it up';
   }
 }
@@ -166,13 +298,19 @@ async function saveShortcut(sc) {
 
 // ── Main init ─────────────────────────────────────────────────────────────────
 
+function ensureRegionOption(select, region) {
+  if (![...select.options].some(o => o.value === region)) {
+    const opt = document.createElement('option');
+    opt.value = region;
+    opt.textContent = region;
+    select.appendChild(opt);
+  }
+}
+
 async function init() {
   specs = await loadSpecs();
 
-  const timeEl = document.getElementById('update-time');
-  timeEl.textContent = specs._updated
-    ? 'Updated: ' + new Date(specs._updated).toLocaleDateString()
-    : 'Bundled data';
+  document.getElementById('update-time').textContent = 'Live via ec2.shop';
 
   let tab = null;
   let tabUrl = '';
@@ -183,12 +321,17 @@ async function init() {
 
   const urlSvc = svcFromUrl(tabUrl);
 
-  if (tab?.id) {
-    await forceScanAllFrames(tab.id);
-    await new Promise(r => setTimeout(r, 450));
-  }
+  // Region: auto-detect from the current AWS console page; fall back to the
+  // last saved choice, then us-east-1.
+  const detectedRegion = regionFromUrl(tabUrl);
+  currentRegion = detectedRegion || await loadRegion();
+  const regionSelect = document.getElementById('region-select');
+  ensureRegionOption(regionSelect, currentRegion);
+  regionSelect.value = currentRegion;
 
-  await readAndRender(urlSvc);
+  let detections = [];
+  if (tab?.id) detections = await scanAllFrames(tab.id);
+  renderDetection(detections, urlSvc);
 
   // ── Main view events ──────────────────────────────────────────────────────
 
@@ -200,6 +343,13 @@ async function init() {
     input.classList.remove('auto');
     document.getElementById('auto-badge').textContent = '';
     lookupAndRender(currentSvc, input.value.trim().toLowerCase());
+  });
+
+  regionSelect.addEventListener('change', async e => {
+    await saveRegion(e.target.value);
+    const input = document.getElementById('instance-input');
+    const val = input.value.trim().toLowerCase();
+    if (val) lookupAndRender(currentSvc, val);
   });
 
   document.getElementById('lookup-btn').addEventListener('click', () => {
@@ -224,11 +374,8 @@ async function init() {
 
   document.getElementById('refresh-btn').addEventListener('click', async () => {
     document.getElementById('auto-badge').textContent = '⟳ Scanning…';
-    if (tab?.id) {
-      await forceScanAllFrames(tab.id);
-      await new Promise(r => setTimeout(r, 450));
-    }
-    await readAndRender(urlSvc);
+    const dets = tab?.id ? await scanAllFrames(tab.id) : [];
+    renderDetection(dets, urlSvc);
   });
 
   // ── Settings view toggle ──────────────────────────────────────────────────

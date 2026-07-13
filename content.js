@@ -2,6 +2,11 @@
 // Detects the current AWS service from the URL, then scans page text for
 // instance/resource types and stores the result for the popup.
 
+// Debug logging — set to false before publishing. Only logs on an explicit
+// SCAN_NOW (popup open), never on the MutationObserver, so it won't spam.
+const LENS_DEBUG = true;
+const LENS_BUILD = 'live-detect-2'; // bump on content-script changes to verify the tab was refreshed
+
 // ── Service detection from URL ───────────────────────────────────────────────
 // Maps URL substrings to service keys. Checked in order; first match wins.
 const URL_SERVICE_MAP = [
@@ -75,9 +80,10 @@ function store(service, raw) {
 }
 
 // ── Scan logic ───────────────────────────────────────────────────────────────
-function scanPage() {
+// Returns { service, raw } for the type detected in THIS frame, or null.
+function computeDetection() {
   const text = document.body?.innerText || '';
-  if (!text) return;
+  if (!text) return null;
 
   const urlService = detectServiceFromUrl(location.href);
 
@@ -88,19 +94,23 @@ function scanPage() {
     ? [urlService, ...allServices.filter(s => s !== urlService)]
     : allServices;
 
-  // Phase 1: label + value within 600-char window after the LAST label match
+  // Phase 1: label + value within a 600-char window after a label match.
+  // Check ALL label occurrences (last first — detail panels are usually lower
+  // on the page), so a stray earlier/later "class"/"size" word doesn't hide the
+  // real value.
   for (const svc of ordered) {
     const [labelRe, valueRe] = SERVICE_PATTERNS[svc] || [];
     if (!labelRe) continue;
     const allLabels = [...text.matchAll(new RegExp(labelRe.source, 'gi'))];
     if (!allLabels.length) continue;
-    const lastLabel = allLabels[allLabels.length - 1];
-    const window = text.slice(lastLabel.index, lastLabel.index + 600);
-    const vm = window.match(valueRe);
-    if (!vm) continue;
-    const raw = vm[1].toLowerCase().replace(/\s+/g, ' ').trim();
-    store(svc, raw);
-    return;
+    let found = null;
+    for (let i = allLabels.length - 1; i >= 0 && !found; i--) {
+      const window = text.slice(allLabels[i].index, allLabels[i].index + 600);
+      const vm = window.match(valueRe);
+      if (vm) found = vm[1];
+    }
+    if (!found) continue;
+    return { service: svc, raw: found.toLowerCase().replace(/\s+/g, ' ').trim() };
   }
 
   // Phase 2: full-page direct regex — only for the URL-detected service (or all if unknown)
@@ -113,19 +123,56 @@ function scanPage() {
     if (!allMatches.length) continue;
     // Take the LAST match — selected/detail panels are typically at the bottom
     const raw = allMatches[allMatches.length - 1][1].toLowerCase().replace(/\s+/g, ' ').trim();
-    store(svc, raw);
-    return;
+    return { service: svc, raw };
   }
+
+  return null;
+}
+
+function scanPage() {
+  const det = computeDetection();
+  if (det) store(det.service, det.raw);
 }
 
 // ── Message listener (popup requests an immediate scan) ──────────────────────
+// Returns this frame's live detection so the popup never depends on the shared
+// storage key (which every frame overwrites — the source of stale/mixed data).
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'SCAN_NOW') {
     _lastStored = '';
-    scanPage();
-    sendResponse({ ok: true, frame: location.href.slice(0, 80) });
+    const det = computeDetection();
+    if (det) store(det.service, det.raw);
+    if (LENS_DEBUG) logScanDiagnostics();
+    sendResponse({ ok: true, build: LENS_BUILD, url: location.href, detected: det || null });
   }
 });
+
+// Diagnostics: prints, per service, how many label hits and which instance-type
+// strings exist on the page, plus the final stored result. Helps pinpoint why a
+// given page did/didn't detect. Copy the whole group to share.
+function logScanDiagnostics() {
+  const text = document.body?.innerText || '';
+  const urlService = detectServiceFromUrl(location.href);
+  console.group('%c[AWS Lens] scan diagnostics', 'color:#f90;font-weight:bold');
+  console.log('frame URL     :', location.href);
+  console.log('URL service   :', urlService);
+  console.log('body text len :', text.length);
+  for (const svc of Object.keys(SERVICE_PATTERNS)) {
+    const [labelRe, valueRe] = SERVICE_PATTERNS[svc];
+    const labels = [...text.matchAll(new RegExp(labelRe.source, 'gi'))].length;
+    let direct = [];
+    if (DIRECT_PATTERNS[svc]) {
+      DIRECT_PATTERNS[svc].lastIndex = 0;
+      direct = [...text.matchAll(DIRECT_PATTERNS[svc])].map(m => m[1]).slice(0, 12);
+    }
+    console.log(
+      `  ${svc.padEnd(12)} labels:${String(labels).padStart(3)}  direct:`,
+      direct.length ? direct : '(none)'
+    );
+  }
+  console.log('stored result :', _lastStored || '(nothing detected)');
+  console.groupEnd();
+}
 
 // ── Floating overlay (triggered by configurable keyboard shortcut) ────────────
 const SERVICE_DISPLAY = {
