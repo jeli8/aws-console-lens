@@ -117,7 +117,7 @@ async function loadSpecs() {
 // Scan every frame and collect their LIVE detections. Each frame returns what
 // it found right now, so we never rely on the shared storage key that all frames
 // overwrite (the cause of stale/mixed data across resources/accounts/regions).
-const LENS_DEBUG = true; // set false before publishing
+const LENS_DEBUG = false; // set false before publishing
 
 async function scanAllFrames(tabId) {
   let frameIds = [0];
